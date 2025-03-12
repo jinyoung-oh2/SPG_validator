@@ -32,12 +32,35 @@ class SimulationRecordSummarizer:
 
     def summarize_by_file(self) -> pd.DataFrame:
         """
-        각 파일별로 result_tag의 발생 횟수를 계산합니다.
-        :return: 파일을 인덱스로 하고, 각 result_tag별 발생 횟수를 컬럼으로 하는 피벗 테이블 형태의 DataFrame
+        각 파일별로 result_tag의 발생에 따라 최종 결과를 결정합니다.
+        동일 파일은 하나로 취급하며, 결과 결정 규칙은 다음과 같습니다:
+            - 모든 result_tag가 "No Collision"인 경우: Pass
+            - 하나라도 "NA" (예: "NA - No Path")가 포함된 경우: NA
+            - 하나라도 정확히 "Collision"이 있는 경우: Fail
+            (단, "NA - Collision"은 NA로 취급)
+        :return: 파일과 최종 결과를 담은 DataFrame
         """
-        file_summary = self.df.groupby(['file', 'result_tag']).size().unstack(fill_value=0)
-        return file_summary
-
+        def determine_final(tags):
+            tags = list(tags)
+            # 먼저, 정확히 "Collision"이 있는 경우 Fail로 처리합니다.
+            if any(tag == "Collision" for tag in tags):
+                return "Fail"
+            # 그 다음, "NA"로 시작하는 태그가 하나라도 있으면 NA 처리합니다.
+            elif any(tag.startswith("NA") for tag in tags):
+                return "NA"
+            # 모든 태그가 "No Collision"인 경우 Pass 처리합니다.
+            elif all(tag == "No Collision" for tag in tags):
+                return "Pass"
+            else:
+                return "Unknown"
+            
+        # 파일별로 그룹화하여 최종 평가를 구합니다.
+        file_classification = self.df.groupby("file")["result_tag"].apply(determine_final)
+        # 최종 평가별 파일 수를 집계합니다.
+        total_summary = file_classification.value_counts().reset_index()
+        total_summary.columns = ["final_result", "count"]
+        return total_summary
+    
     def run(self) -> None:
         event_summary = self.summarize_by_event()
         print("=== Event-level Summary ===")
